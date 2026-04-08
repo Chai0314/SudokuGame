@@ -1,0 +1,81 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import '~@fortawesome/fontawesome-free/css/all.min.css';
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* 数独单元格基础样式 */
+.sudoku-cell {
+  @apply w-10 h-10 md:w-12 md:h-12 flex items-center justify-center text-lg md:text-xl font-medium border border-gray-300 cursor-pointer transition-all duration-150 select-none;
+}
+
+.sudoku-cell:hover:not(.cell-readonly) {
+  @apply bg-blue-50;
+}
+
+.sudoku-cell.cell-readonly {
+  @apply text-gray-800 font-bold cursor-default bg-gray-50;
+}
+
+.sudoku-cell.cell-selected {
+  @apply bg-blue-200 ring-2 ring-blue-400 ring-inset;
+}
+
+.sudoku-cell.cell-highlight {
+  @apply bg-blue-100;
+}
+
+.sudoku-cell.cell-error {
+  @apply bg-red-100 text-red-600;
+}
+
+.sudoku-cell.cell-correct {
+  @apply text-primary;
+}
+
+/* 3x3 宫格粗线 */
+.sudoku-cell.border-b-thick {
+  border-bottom: 2px solid #4B5563;
+}
+
+.sudoku-cell.border-r-thick {
+  border-right: 2px solid #4B5563;
+}
+
+/* 按钮悬停效果 */
+.btn-hover {
+  @apply hover:shadow-lg transform hover:-translate-y-0.5 transition-all duration-200 active:translate-y-0;
+}
+
+/* 数字键盘按钮 */
+.num-btn {
+  @apply bg-gray-100 hover:bg-primary hover:text-white text-gray-800 rounded-lg h-11 flex items-center justify-center font-bold text-lg transition-all duration-150 cursor-pointer;
+}
+
+.num-btn:active {
+  @apply scale-95;
+}
+
+/* 结果弹窗动画 */
+.modal-enter {
+  opacity: 0;
+  transform: scale(0.95);
+}
+
+.modal-enter-active {
+  opacity: 1;
+  transform: scale(1);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.modal-leave-active {
+  opacity: 0;
+  transform: scale(0.95);
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
