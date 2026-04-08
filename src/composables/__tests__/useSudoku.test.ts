@@ -45,7 +45,7 @@ describe('useSudoku', () => {
   })
 
   describe('removeNumbers', () => {
-    it('简单难度应该有约 45 个空格', () => {
+    it('简单难度应该有空格（可能少于目标值，因为要保证唯一解）', () => {
       const { newGame, puzzle } = useSudoku()
       newGame('easy')
 
@@ -55,10 +55,12 @@ describe('useSudoku', () => {
           if (puzzle.value[i][j] === 0) emptyCount++
         }
       }
-      expect(emptyCount).toBe(36)
+      // 由于唯一解约束，实际移除数可能少于目标值，但应该有相当数量的空格
+      expect(emptyCount).toBeGreaterThan(0)
+      expect(emptyCount).toBeLessThanOrEqual(36)
     })
 
-    it('专家难度应该有约 58 个空格', () => {
+    it('专家难度应该有空格（可能少于目标值，因为要保证唯一解）', () => {
       const { newGame, puzzle } = useSudoku()
       newGame('expert')
 
@@ -68,7 +70,17 @@ describe('useSudoku', () => {
           if (puzzle.value[i][j] === 0) emptyCount++
         }
       }
-      expect(emptyCount).toBe(58)
+      expect(emptyCount).toBeGreaterThan(0)
+      expect(emptyCount).toBeLessThanOrEqual(58)
+    })
+
+    it('谜题应该有唯一解', () => {
+      const { newGame, puzzle } = useSudoku()
+      newGame('medium')
+
+      // 验证谜题有且仅有一个解
+      const solutions = solveAll(puzzle.value, 2)
+      expect(solutions).toBe(1)
     })
   })
 
@@ -157,15 +169,73 @@ describe('useSudoku', () => {
     })
 
     it('空格应该返回 empty', () => {
-      const { newGame, getCellState } = useSudoku()
+      const { newGame, getCellState, puzzle } = useSudoku()
       newGame('easy')
 
       for (let i = 0; i < 9; i++) {
         for (let j = 0; j < 9; j++) {
-          // 找空格
-          // We can't directly check since puzzle is reactive
+          if (puzzle.value[i][j] === 0) {
+            expect(getCellState(i, j)).toBe('empty')
+          }
         }
       }
+    })
+
+    it('填入冲突数字应该返回 error', () => {
+      const { newGame, puzzle, fillCell, getCellState, isReadonly } = useSudoku()
+      newGame('easy')
+
+      // 找一个空格
+      let emptyRow = -1, emptyCol = -1
+      for (let i = 0; i < 9 && emptyRow === -1; i++) {
+        for (let j = 0; j < 9 && emptyRow === -1; j++) {
+          if (puzzle.value[i][j] === 0) {
+            emptyRow = i
+            emptyCol = j
+          }
+        }
+      }
+
+      // 找同行中已存在的一个数字
+      let conflictNum = 0
+      for (let j = 0; j < 9; j++) {
+        if (puzzle.value[emptyRow][j] !== 0) {
+          conflictNum = puzzle.value[emptyRow][j]
+          break
+        }
+      }
+
+      expect(conflictNum).toBeGreaterThan(0)
+      fillCell(emptyRow, emptyCol, conflictNum)
+      expect(getCellState(emptyRow, emptyCol)).toBe('error')
+    })
+  })
+
+  describe('checkSolution', () => {
+    it('未完成的谜题应该返回 isComplete=false', () => {
+      const { newGame, checkSolution } = useSudoku()
+      newGame('easy')
+
+      const result = checkSolution()
+      expect(result.isComplete).toBe(false)
+    })
+
+    it('填满正确答案后应该返回 isComplete=true', () => {
+      const { newGame, solution, puzzle, fillCell, checkSolution, isReadonly } = useSudoku()
+      newGame('easy')
+
+      // 填入所有正确答案
+      for (let i = 0; i < 9; i++) {
+        for (let j = 0; j < 9; j++) {
+          if (!isReadonly(i, j)) {
+            fillCell(i, j, solution.value[i][j])
+          }
+        }
+      }
+
+      const result = checkSolution()
+      expect(result.isComplete).toBe(true)
+      expect(result.hasError).toBe(false)
     })
   })
 
@@ -189,3 +259,50 @@ describe('useSudoku', () => {
     })
   })
 })
+
+/** 辅助函数：求解数独并计数（最多 limit 个解） */
+function solveAll(grid: number[][], limit: number = 2): number {
+  let count = 0
+  const board = grid.map(row => [...row])
+
+  function isValid(board: number[][], row: number, col: number, num: number): boolean {
+    for (let i = 0; i < 9; i++) {
+      if (board[row][i] === num) return false
+    }
+    for (let i = 0; i < 9; i++) {
+      if (board[i][col] === num) return false
+    }
+    const startRow = Math.floor(row / 3) * 3
+    const startCol = Math.floor(col / 3) * 3
+    for (let i = startRow; i < startRow + 3; i++) {
+      for (let j = startCol; j < startCol + 3; j++) {
+        if (board[i][j] === num) return false
+      }
+    }
+    return true
+  }
+
+  function backtrack(row: number, col: number): void {
+    if (count >= limit) return
+    if (row === 9) { count++; return }
+
+    const nextRow = col === 8 ? row + 1 : row
+    const nextCol = col === 8 ? 0 : col + 1
+
+    if (board[row][col] !== 0) {
+      backtrack(nextRow, nextCol)
+      return
+    }
+
+    for (let num = 1; num <= 9; num++) {
+      if (isValid(board, row, col, num)) {
+        board[row][col] = num
+        backtrack(nextRow, nextCol)
+        board[row][col] = 0
+      }
+    }
+  }
+
+  backtrack(0, 0)
+  return count
+}

@@ -74,7 +74,41 @@ function generateSolution(): number[][] {
   return grid
 }
 
-/** 根据难度从完整棋盘中移除数字，生成谜题 */
+/** 使用回溯法计算数独的解的数量（最多计数到 limit 个就停止） */
+function countSolutions(grid: number[][], limit: number = 2): number {
+  let count = 0
+  const board = grid.map(row => [...row])
+
+  function backtrack(row: number, col: number): void {
+    if (count >= limit) return
+
+    if (row === 9) {
+      count++
+      return
+    }
+
+    const nextRow = col === 8 ? row + 1 : row
+    const nextCol = col === 8 ? 0 : col + 1
+
+    if (board[row][col] !== 0) {
+      backtrack(nextRow, nextCol)
+      return
+    }
+
+    for (let num = 1; num <= 9; num++) {
+      if (isValid(board, row, col, num)) {
+        board[row][col] = num
+        backtrack(nextRow, nextCol)
+        board[row][col] = 0
+      }
+    }
+  }
+
+  backtrack(0, 0)
+  return count
+}
+
+/** 根据难度从完整棋盘中移除数字，生成谜题（保证唯一解） */
 function removeNumbers(board: number[][], difficulty: Difficulty): number[][] {
   const puzzle = board.map(row => [...row])
   const removeCount = DIFFICULTY_MAP[difficulty]
@@ -88,10 +122,19 @@ function removeNumbers(board: number[][], difficulty: Difficulty): number[][] {
   }
   const shuffledPositions = shuffleArray(positions)
 
-  // 移除指定数量的数字
-  for (let i = 0; i < removeCount && i < shuffledPositions.length; i++) {
+  let removed = 0
+  for (let i = 0; i < shuffledPositions.length && removed < removeCount; i++) {
     const { row, col } = shuffledPositions[i]
+    const backup = puzzle[row][col]
     puzzle[row][col] = 0
+
+    // 检查移除后是否仍有唯一解
+    if (countSolutions(puzzle, 2) !== 1) {
+      // 移除此数字会导致多解，恢复
+      puzzle[row][col] = backup
+    } else {
+      removed++
+    }
   }
 
   return puzzle
@@ -160,12 +203,41 @@ export function useSudoku() {
     return initialPuzzle.value[row]?.[col] !== 0
   }
 
+  /** 检查某个数字在棋盘上是否有冲突（同行/列/宫重复） */
+  function hasConflict(grid: number[][], row: number, col: number): boolean {
+    const num = grid[row][col]
+    if (num === 0) return false
+
+    // 检查行
+    for (let i = 0; i < 9; i++) {
+      if (i !== col && grid[row][i] === num) return true
+    }
+    // 检查列
+    for (let i = 0; i < 9; i++) {
+      if (i !== row && grid[i][col] === num) return true
+    }
+    // 检查 3x3 宫格
+    const startRow = Math.floor(row / 3) * 3
+    const startCol = Math.floor(col / 3) * 3
+    for (let i = startRow; i < startRow + 3; i++) {
+      for (let j = startCol; j < startCol + 3; j++) {
+        if ((i !== row || j !== col) && grid[i][j] === num) return true
+      }
+    }
+    return false
+  }
+
   /** 获取某个位置的单元格状态 */
   function getCellState(row: number, col: number): CellState {
     if (!puzzle.value[row] || puzzle.value[row][col] === 0) return 'empty'
     if (isReadonly(row, col)) return 'correct'
+    // 优先检查是否有冲突（基于数独规则）
+    if (hasConflict(puzzle.value, row, col)) return 'error'
+    // 无冲突且与答案一致则标记为正确
     if (puzzle.value[row][col] === solution.value[row][col]) return 'correct'
-    return 'error'
+    // 无冲突但与答案不同：由于谜题保证唯一解，这种情况理论上不会出现
+    // 但为安全起见，仍视为正确（用户填入的数字符合数独规则）
+    return 'correct'
   }
 
   /** 获取与指定位置相关的所有位置（同行、同列、同宫） */
@@ -261,34 +333,45 @@ export function useSudoku() {
     stopTimer()
   }
 
-  /** 检查答案（用于"检查"按钮） */
+  /** 检查答案（用于"检查"按钮）—— 基于数独规则验证 */
   function checkSolution(): { hasError: boolean; isComplete: boolean } {
     let hasError = false
     let isComplete = true
+    let allFilled = true
 
     for (let i = 0; i < 9; i++) {
       for (let j = 0; j < 9; j++) {
         if (puzzle.value[i][j] === 0) {
+          allFilled = false
           isComplete = false
-        } else if (puzzle.value[i][j] !== solution.value[i][j]) {
+        } else if (hasConflict(puzzle.value, i, j)) {
           hasError = true
         }
       }
     }
 
-    if (isComplete && !hasError) {
+    // 全部填满且无冲突即为完成
+    if (allFilled && !hasError) {
+      isComplete = true
       gameStatus.value = 'won'
       stopTimer()
     }
 
-    return { hasError, isComplete: isComplete && !hasError }
+    return { hasError, isComplete }
   }
 
-  /** 检查游戏是否完成 */
+  /** 检查游戏是否完成 —— 基于数独规则验证 */
   function checkGameCompletion(): boolean {
+    // 首先检查是否所有格子都已填满
     for (let i = 0; i < 9; i++) {
       for (let j = 0; j < 9; j++) {
-        if (puzzle.value[i][j] !== solution.value[i][j]) return false
+        if (puzzle.value[i][j] === 0) return false
+      }
+    }
+    // 然后检查是否有冲突
+    for (let i = 0; i < 9; i++) {
+      for (let j = 0; j < 9; j++) {
+        if (hasConflict(puzzle.value, i, j)) return false
       }
     }
     return true
