@@ -144,10 +144,13 @@
                 v-for="n in 9"
                 :key="n"
                 class="num-btn"
-                :disabled="gameStatus !== 'playing'"
+                :class="{ 'num-btn-completed': numberCounts[n] >= 9 }"
+                :disabled="gameStatus !== 'playing' || numberCounts[n] >= 9"
+                :title="numberCounts[n] >= 9 ? '该数字已全部填入' : `剩余 ${9 - numberCounts[n]} 个`"
                 @click="handleNumberInput(n)"
               >
                 {{ n }}
+                <span class="block text-[10px] leading-none mt-0.5 opacity-60">{{ 9 - numberCounts[n] }}</span>
               </button>
             </div>
           </div>
@@ -196,6 +199,7 @@ const {
   difficulty,
   progress,
   formattedTime,
+  numberCounts,
   isReadonly,
   getCellState,
   getRelatedPositions,

@@ -137,6 +137,24 @@ export function useSudoku() {
     return `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
   })
 
+  /** 每个数字（1-9）在棋盘上已出现的次数 */
+  const numberCounts = computed<Record<number, number>>(() => {
+    const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0 }
+    if (!puzzle.value || puzzle.value.length === 0) return counts
+    for (let i = 0; i < 9; i++) {
+      for (let j = 0; j < 9; j++) {
+        const num = puzzle.value[i][j]
+        if (num >= 1 && num <= 9) counts[num]++
+      }
+    }
+    return counts
+  })
+
+  /** 判断某个数字是否已用完（出现 9 次） */
+  function isNumberCompleted(num: number): boolean {
+    return numberCounts.value[num] >= 9
+  }
+
   /** 判断某个位置是否是预填的 */
   function isReadonly(row: number, col: number): boolean {
     return initialPuzzle.value[row]?.[col] !== 0
@@ -325,8 +343,10 @@ export function useSudoku() {
     difficulty,
     progress,
     formattedTime,
+    numberCounts,
     // 方法
     isReadonly,
+    isNumberCompleted,
     getCellState,
     getRelatedPositions,
     selectCell,
