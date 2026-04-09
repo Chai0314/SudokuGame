@@ -231,12 +231,10 @@ export function useSudoku() {
   function getCellState(row: number, col: number): CellState {
     if (!puzzle.value[row] || puzzle.value[row][col] === 0) return 'empty'
     if (isReadonly(row, col)) return 'correct'
-    // 优先检查是否有冲突（基于数独规则）
+    // 有冲突（行/列/宫重复）→ 一定标红
     if (hasConflict(puzzle.value, row, col)) return 'error'
-    // 无冲突且与答案一致则标记为正确
-    if (puzzle.value[row][col] === solution.value[row][col]) return 'correct'
-    // 无冲突但与答案不同：由于谜题保证唯一解，这种情况理论上不会出现
-    // 但为安全起见，仍视为正确（用户填入的数字符合数独规则）
+    // 无冲突但与预设答案不一致 → 也标红（谜题保证唯一解，不同答案就是错的）
+    if (puzzle.value[row][col] !== solution.value[row][col]) return 'error'
     return 'correct'
   }
 
