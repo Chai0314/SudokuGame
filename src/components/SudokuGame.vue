@@ -132,8 +132,12 @@
                   :key="index"
                   :class="getCellClasses(index)"
                   @click="handleCellClick(index)"
+                  @contextmenu="handleCellRightClick(index, $event)"
                 >
-                  {{ getCellDisplay(index) }}
+                  <span class="cell-main-number">{{ getCellDisplay(index) }}</span>
+                  <div v-if="getCellMarks(index).length > 0" class="cell-marks">
+                    <span v-for="mark in getCellMarks(index)" :key="mark" class="cell-mark">{{ mark }}</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -188,8 +192,156 @@
   </div>
 </template>
 
+<style scoped>
+/* 单元格样式 */
+.sudoku-cell {
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border: 1px solid #e5e7eb;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+/* 主数字样式 */
+.cell-main-number {
+  z-index: 1;
+}
+
+/* 标记容器 */
+.cell-marks {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  right: 2px;
+  bottom: 2px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(3, 1fr);
+  gap: 1px;
+  z-index: 0;
+}
+
+/* 单个标记样式 */
+.cell-mark {
+  font-size: 10px;
+  font-weight: 400;
+  color: #6b7280;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 3x3 宫格粗线 */
+.border-b-thick {
+  border-bottom: 2px solid #4b5563;
+}
+
+.border-r-thick {
+  border-right: 2px solid #4b5563;
+}
+
+/* 预填格 */
+.cell-readonly {
+  background-color: #f9fafb;
+  color: #111827;
+  font-weight: 700;
+}
+
+/* 选中状态 */
+.cell-selected {
+  background-color: #dbeafe;
+  border-color: #3b82f6;
+}
+
+/* 关联高亮 */
+.cell-highlight {
+  background-color: #eff6ff;
+}
+
+/* 正确状态 */
+.cell-correct {
+  color: #10b981;
+}
+
+/* 错误状态 */
+.cell-error {
+  color: #ef4444;
+}
+
+/* 数字按钮样式 */
+.num-btn {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background-color: #ffffff;
+  color: #111827;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.num-btn:hover:not(:disabled) {
+  background-color: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.num-btn:active:not(:disabled) {
+  background-color: #e5e7eb;
+}
+
+.num-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.num-btn-completed {
+  background-color: #f0fdf4;
+  border-color: #bbf7d0;
+  color: #16a34a;
+}
+
+/* 按钮悬停效果 */
+.btn-hover {
+  transition: all 0.2s ease;
+}
+
+.btn-hover:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+.btn-hover:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+}
+
+/* 模态框动画 */
+.modal-enter-active,
+.modal-leave-active {
+  transition: all 0.3s ease;
+}
+
+.modal-enter-from,
+.modal-leave-to {
+  opacity: 0;
+  transform: scale(0.9);
+}
+</style>
+
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useSudoku } from '../composables/useSudoku'
 
 const {
@@ -200,12 +352,19 @@ const {
   progress,
   formattedTime,
   numberCounts,
+  bestTimes,
+  timeElapsed,
+  marks,
   isReadonly,
   getCellState,
   getRelatedPositions,
   selectCell,
   fillCell,
   clearCell,
+  addMark,
+  removeMark,
+  toggleMark,
+  clearMarks,
   getHint,
   showSolution,
   checkSolution,
@@ -216,15 +375,30 @@ const {
 // 弹窗状态
 const showModal = ref(false)
 const modalIsSuccess = ref(true)
+const isNewRecord = ref(false)
 
-const modalIcon = computed(() => modalIsSuccess.value ? '🏆' : '😅')
-const modalTitle = computed(() => modalIsSuccess.value ? '恭喜你！' : '再试一次')
-const modalTitleClass = computed(() => modalIsSuccess.value ? 'text-secondary' : 'text-red-500')
+const modalIcon = computed(() => modalIsSuccess.value ? (isNewRecord.value ? '🌟' : '🏆') : '😅')
+const modalTitle = computed(() => modalIsSuccess.value ? (isNewRecord.value ? '新纪录！' : '恭喜你！') : '再试一次')
+const modalTitleClass = computed(() => modalIsSuccess.value ? (isNewRecord.value ? 'text-accent' : 'text-secondary') : 'text-red-500')
 const modalMessage = computed(() => {
   if (modalIsSuccess.value) {
     const minutes = Math.floor(formattedTime.value.split(':')[0])
     const seconds = formattedTime.value.split(':')[1]
-    return `你完成了数独游戏，用时 ${minutes} 分 ${seconds} 秒。`
+    const currentTime = `${minutes} 分 ${seconds} 秒`
+    
+    const bestTime = bestTimes.value[difficulty.value]
+    let bestTimeStr = '无记录'
+    if (bestTime !== null) {
+      const bestMinutes = Math.floor(bestTime / 60)
+      const bestSeconds = bestTime % 60
+      bestTimeStr = `${bestMinutes} 分 ${bestSeconds} 秒`
+    }
+    
+    if (isNewRecord.value) {
+      return `🎉 新纪录！你完成了数独游戏，用时 ${currentTime}。\n这是你在 ${difficulty.value === 'easy' ? '简单' : difficulty.value === 'medium' ? '中等' : difficulty.value === 'hard' ? '困难' : '专家'} 难度的最快记录！`
+    } else {
+      return `你完成了数独游戏，用时 ${currentTime}。\n当前 ${difficulty.value === 'easy' ? '简单' : difficulty.value === 'medium' ? '中等' : difficulty.value === 'hard' ? '困难' : '专家'} 难度的最快记录是 ${bestTimeStr}。`
+    }
   }
   return '你的答案中包含错误，请检查后继续。'
 })
@@ -238,6 +412,23 @@ function getRowCol(index: number): { row: number; col: number } {
 function getCellDisplay(index: number): string {
   const { row, col } = getRowCol(index)
   return puzzle.value[row]?.[col] !== 0 ? String(puzzle.value[row][col]) : ''
+}
+
+/** 获取单元格的标记 */
+function getCellMarks(index: number): number[] {
+  const { row, col } = getRowCol(index)
+  return Array.from(marks.value[row]?.[col] || []).sort((a, b) => a - b)
+}
+
+/** 处理单元格右键点击 */
+function handleCellRightClick(index: number, event: MouseEvent) {
+  event.preventDefault() // 阻止默认右键菜单
+  const { row, col } = getRowCol(index)
+  if (isReadonly(row, col)) return
+  if (gameStatus.value !== 'playing') return
+  if (puzzle.value[row][col] !== 0) return // 已有数字的单元格不能添加标记
+  
+  selectedCell.value = { row, col }
 }
 
 /** 获取单元格的 CSS 类 */
@@ -308,12 +499,14 @@ function handleShowSolution() {
 
 /** 处理检查 */
 function handleCheck() {
-  const { hasError, isComplete } = checkSolution()
+  const { hasError, isComplete, isNewRecord: newRecord } = checkSolution()
   if (isComplete) {
     modalIsSuccess.value = true
+    isNewRecord.value = newRecord
     showModal.value = true
   } else if (hasError) {
     modalIsSuccess.value = false
+    isNewRecord.value = false
     showModal.value = true
   }
 }
@@ -338,13 +531,25 @@ function handleKeydown(e: KeyboardEvent) {
 
   // 数字键
   if (e.key >= '1' && e.key <= '9') {
-    fillCell(row, col, parseInt(e.key))
+    if (e.altKey) {
+      // Alt + 数字键：添加/移除标记
+      toggleMark(row, col, parseInt(e.key))
+    } else {
+      // 普通数字键：填充数字
+      fillCell(row, col, parseInt(e.key))
+    }
     return
   }
 
   // 删除键
   if (e.key === 'Delete' || e.key === 'Backspace') {
-    clearCell(row, col)
+    if (puzzle.value[row][col] === 0) {
+      // 单元格为空时，清除所有标记
+      clearMarks(row, col)
+    } else {
+      // 单元格有数字时，清除数字
+      clearCell(row, col)
+    }
     return
   }
 
@@ -358,6 +563,18 @@ function handleKeydown(e: KeyboardEvent) {
 onMounted(() => {
   newGame()
   document.addEventListener('keydown', handleKeydown)
+})
+
+// 监听游戏状态变化，当游戏获胜时显示提示框
+watch(() => gameStatus.value, (newStatus) => {
+  if (newStatus === 'won') {
+    // 计算是否创造了新纪录
+    const currentTime = timeElapsed.value
+    const bestTime = bestTimes.value[difficulty.value]
+    isNewRecord.value = bestTime === null || currentTime < bestTime
+    modalIsSuccess.value = true
+    showModal.value = true
+  }
 })
 
 onUnmounted(() => {

@@ -140,9 +140,23 @@ function removeNumbers(board: number[][], difficulty: Difficulty): number[][] {
   return puzzle
 }
 
+export interface BestTimes {
+  easy: number | null
+  medium: number | null
+  hard: number | null
+  expert: number | null
+}
+
 export function useSudoku() {
   /** 创建空的 9x9 棋盘 */
   const emptyBoard = (): number[][] => Array.from({ length: 9 }, () => Array(9).fill(0))
+
+  /** 创建空的 9x9 标记棋盘 */
+  const emptyMarksBoard = (): Set<number>[][] => {
+    return Array.from({ length: 9 }, () => 
+      Array.from({ length: 9 }, () => new Set<number>())
+    )
+  }
 
   /** 完整答案 */
   const solution = ref<number[][]>(emptyBoard())
@@ -150,6 +164,8 @@ export function useSudoku() {
   const puzzle = ref<number[][]>(emptyBoard())
   /** 初始谜题（用于判断哪些是预填的） */
   const initialPuzzle = ref<number[][]>(emptyBoard())
+  /** 单元格标记 */
+  const marks = ref<Set<number>[][]>(emptyMarksBoard())
   /** 当前选中的单元格 */
   const selectedCell = ref<Position | null>(null)
   /** 已用时间（秒） */
@@ -158,8 +174,18 @@ export function useSudoku() {
   const gameStatus = ref<GameStatus>('idle')
   /** 当前难度 */
   const difficulty = ref<Difficulty>('medium')
+  /** 最快完成时间 */
+  const bestTimes = ref<BestTimes>({
+    easy: null,
+    medium: null,
+    hard: null,
+    expert: null
+  })
   /** 计时器 ID */
   let timerId: ReturnType<typeof setInterval> | null = null
+
+  // 初始化时加载最佳时间
+  loadBestTimes()
 
   /** 完成度百分比 */
   const progress = computed(() => {
@@ -277,6 +303,7 @@ export function useSudoku() {
     if (checkGameCompletion()) {
       gameStatus.value = 'won'
       stopTimer()
+      updateBestTime()
     }
 
     return true
@@ -312,6 +339,7 @@ export function useSudoku() {
     if (checkGameCompletion()) {
       gameStatus.value = 'won'
       stopTimer()
+      updateBestTime()
     }
 
     return cell
@@ -329,13 +357,15 @@ export function useSudoku() {
     }
     gameStatus.value = 'won'
     stopTimer()
+    updateBestTime()
   }
 
   /** 检查答案（用于"检查"按钮）—— 基于数独规则验证 */
-  function checkSolution(): { hasError: boolean; isComplete: boolean } {
+  function checkSolution(): { hasError: boolean; isComplete: boolean; isNewRecord: boolean } {
     let hasError = false
     let isComplete = true
     let allFilled = true
+    let isNewRecord = false
 
     for (let i = 0; i < 9; i++) {
       for (let j = 0; j < 9; j++) {
@@ -353,9 +383,44 @@ export function useSudoku() {
       isComplete = true
       gameStatus.value = 'won'
       stopTimer()
+      isNewRecord = updateBestTime()
     }
 
-    return { hasError, isComplete }
+    return { hasError, isComplete, isNewRecord }
+  }
+
+  /** 从本地存储读取最快时间 */
+  function loadBestTimes() {
+    try {
+      const stored = localStorage.getItem('sudokuBestTimes')
+      if (stored) {
+        bestTimes.value = JSON.parse(stored)
+      }
+    } catch (error) {
+      console.error('Failed to load best times:', error)
+    }
+  }
+
+  /** 保存最快时间到本地存储 */
+  function saveBestTimes() {
+    try {
+      localStorage.setItem('sudokuBestTimes', JSON.stringify(bestTimes.value))
+    } catch (error) {
+      console.error('Failed to save best times:', error)
+    }
+  }
+
+  /** 更新最快时间 */
+  function updateBestTime() {
+    const currentTime = timeElapsed.value
+    const currentDifficulty = difficulty.value
+    
+    if (bestTimes.value[currentDifficulty] === null || currentTime < bestTimes.value[currentDifficulty]!) {
+      bestTimes.value[currentDifficulty] = currentTime
+      saveBestTimes()
+      return true // 返回是否创造了新纪录
+    }
+    return false
   }
 
   /** 检查游戏是否完成 —— 基于数独规则验证 */
@@ -391,6 +456,46 @@ export function useSudoku() {
     }
   }
 
+  /** 添加标记 */
+  function addMark(row: number, col: number, number: number): boolean {
+    if (isReadonly(row, col)) return false
+    if (gameStatus.value !== 'playing') return false
+    if (puzzle.value[row][col] !== 0) return false // 已有数字的单元格不能添加标记
+
+    marks.value[row][col].add(number)
+    return true
+  }
+
+  /** 移除标记 */
+  function removeMark(row: number, col: number, number: number): boolean {
+    if (isReadonly(row, col)) return false
+    if (gameStatus.value !== 'playing') return false
+
+    return marks.value[row][col].delete(number)
+  }
+
+  /** 切换标记（如果存在则移除，不存在则添加） */
+  function toggleMark(row: number, col: number, number: number): boolean {
+    if (isReadonly(row, col)) return false
+    if (gameStatus.value !== 'playing') return false
+    if (puzzle.value[row][col] !== 0) return false // 已有数字的单元格不能添加标记
+
+    if (marks.value[row][col].has(number)) {
+      return removeMark(row, col, number)
+    } else {
+      return addMark(row, col, number)
+    }
+  }
+
+  /** 清除单元格的所有标记 */
+  function clearMarks(row: number, col: number): boolean {
+    if (isReadonly(row, col)) return false
+    if (gameStatus.value !== 'playing') return false
+
+    marks.value[row][col].clear()
+    return true
+  }
+
   /** 开始新游戏 */
   function newGame(diff?: Difficulty) {
     if (diff) difficulty.value = diff
@@ -399,6 +504,7 @@ export function useSudoku() {
     timeElapsed.value = 0
     gameStatus.value = 'playing'
     selectedCell.value = null
+    marks.value = emptyMarksBoard() // 重置标记
 
     solution.value = generateSolution()
     const puzzleBoard = removeNumbers(solution.value, difficulty.value)
@@ -425,6 +531,8 @@ export function useSudoku() {
     progress,
     formattedTime,
     numberCounts,
+    bestTimes,
+    marks,
     // 方法
     isReadonly,
     isNumberCompleted,
@@ -433,6 +541,10 @@ export function useSudoku() {
     selectCell,
     fillCell,
     clearCell,
+    addMark,
+    removeMark,
+    toggleMark,
+    clearMarks,
     getHint,
     showSolution,
     checkSolution,
